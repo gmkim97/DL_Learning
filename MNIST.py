@@ -1,34 +1,12 @@
 """
 ### CNN : MNIST application example (Pytorch)
 
-1. Import proper libraries
-2. Variable initialization
-3. Define layers
-    (1) Convection Layer
-    (2) Pooling Layer
-    (3) Fully Connected Layer
-"""
-
-"""
-### Given Architecture of CNN
-# 1번 레이어 : 합성곱층(Convolutional layer)
-합성곱(in_channel = 1, out_channel = 32, kernel_size=3, stride=1, padding=1) + 활성화 함수 ReLU
-맥스풀링(kernel_size=2, stride=2))
-
-# 2번 레이어 : 합성곱층(Convolutional layer)
-합성곱(in_channel = 32, out_channel = 64, kernel_size=3, stride=1, padding=1) + 활성화 함수 ReLU
-맥스풀링(kernel_size=2, stride=2))
-
-# 3번 레이어 : 합성곱층(Convolutional layer)
-합성곱(in_channel = 64, out_channel = 128, kernel_size=3, stride=1, padding=1) + 활성화 함수 ReLU
-맥스풀링(kernel_size=2, stride=2, padding=1))
-
-# 4번 레이어 : 전결합층(Fully-Connected layer)
-특성맵을 펼친다. # batch_size x 4 x 4 x 128 → batch_size x 2048
-전결합층(뉴런 625개) + 활성화 함수 ReLU
-
-# 5번 레이어 : 전결합층(Fully-Connected layer)
-전결합층(뉴런 10개) + 활성화 함수 Softmax
+1. Checking device
+2. Setting datasets and data loader
+3. Modeling NN
+4. Defining loss(cost) function and optimizer
+5. Training : forward + backward + optimization
+6. Testing
 """
 
 import torch
@@ -38,8 +16,8 @@ from torch.utils.data import DataLoader
 import numpy as np
 import matplotlib.pyplot as plt
 
-def displayMNIST(train_loader, num):
-    images, labels = next(iter(train_loader))
+def displayMNIST(data_loader, num):
+    images, labels = next(iter(data_loader))
 
     for i in range(num):
         plt.subplot(1,num, i + 1)
@@ -57,61 +35,96 @@ def checkGPU():
     able_gpu = torch.cuda.is_available()
     if able_mps :
         device = torch.device('mps')
-        print("MPS Available")
+        print("MPS Available\n")
     elif able_gpu :
         device = torch.device('cuda:0')
-        print("GPU CUDA Available")
+        print("GPU CUDA Available\n")
     else :
         device = torch.device('cpu')
-        print("MPS NOT Available")
+        print("MPS NOT Available\n")
 
     return device
 
+def trainMNIST(data_loader, optimizer, criterion, epochs, device):
+    
+    cnn.train()
+
+    avg_loss = 0
+    
+    for index, data in enumerate(data_loader): ## <enumerate func.> returns (1) the index, and (2) the components of collection in tuple.
+    
+        inputs, labels = data[0].to(device), data[1].to(device) ## MNIST data in data_loader consists of (input) image data with each labels
+
+        optimizer.zero_grad() ## Initializing the gradient
+
+        hypothesis = cnn(inputs) ## Forward
+        loss = criterion(hypothesis, labels)
+        loss.backward() ## Backward
+
+        optimizer.step() ## Optimizations
+
+        avg_loss += loss / len(data_loader)
+    
+    print("Completed training for Epoch : {}".format(epochs+1))
+    print("[Epoch : {}] Average Loss : {:.6f}\n".format(epochs+1, avg_loss))
+
+def testMNIST(test_data, device):
+
+    cnn.eval()
+
+    with torch.no_grad():
+        X_test = test_data.test_data.view(len(test_data), 1, 28,28).float().to(device)
+        Y_test = test_data.test_labels.to(device)
+
+        hypothesis = cnn(X_test)
+        correct_hypo = torch.argmax(hypothesis,1) == Y_test
+        accuracy = correct_hypo.float().mean()
+        print("Accuracy : {:.6f}".format(accuracy.item()))
 
 # Define a Convolutional Neural Network (CNN)
 class CNN(nn.Module):
     def __init__(self):
         super(CNN, self).__init__()
-        self.conv1 = nn.Sequential(
+        self.layer1 = nn.Sequential( ## One layer = Conv. layer + Pooling layer
             nn.Conv2d(in_channels=1, out_channels=32, kernel_size=3, stride=1, padding=1),
-            nn.ReLU()
+            nn.ReLU(), ## ReLU Activation function
+            nn.MaxPool2d(kernel_size=2, stride=2)
         )
-        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
         
-        self.conv2 = nn.Sequential(
+        self.layer2 = nn.Sequential(
             nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1),
-            nn.ReLU()
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2)
         )
-        self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
         
-        self.conv3 = nn.Sequential(
+        self.layer3 = nn.Sequential(
             nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1),
-            nn.ReLU()
-        )
-        self.pool3 = nn.MaxPool2d(kernel_size=2, stride=2, padding=1)
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2, padding=1)
 
-        self.fc1 = nn.Sequential(
-            nn.Linear(in_features=4*4*128, out_features=625, bias=True),
-            nn.ReLU()  
         )
 
-        self.fc2 = nn.Sequential(
-            nn.Linear(in_features=625, out_features=10, bias=True),
-            nn.ReLU()
+        self.fc1 = nn.Linear(in_features=4*4*128, out_features=625, bias=True)
+        nn.init.xavier_uniform_(self.fc1.weight) ## Weight initialization to improve the learning process.
+        
+        self.layer4 = nn.Sequential(
+            self.fc1,
+            nn.ReLU(),
+            nn.Dropout(p=0.5)  ## Using Dropout Regularization at hidden layer of FC for avoiding overfit, or improving the process.
         )
+
+        self.fc2 = nn.Linear(in_features=625, out_features=10, bias=True) ## Since cost function already has Softmax, don't need to activate in here.
+        nn.init.xavier_uniform_(self.fc2.weight)
         
     def forward(self, x):
-        out_conv1 = self.conv1(x)
-        out_pool1 = self.pool1(out_conv1)
-        out_conv2 = self.conv2(out_pool1)
-        out_pool2 = self.pool2(out_conv2)
-        out_conv3 = self.conv3(out_pool2)
-        out_pool3 = self.pool3(out_conv3)
-        out_flatten = torch.flatten(out_pool3, 1)
-        out_fc1 = self.fc1(out_flatten)
-        out_fc2 = self.fc2(out_fc1)
+        out_layer1 = self.layer1(x)
+        out_layer2 = self.layer2(out_layer1)
+        out_layer3 = self.layer3(out_layer2)
+        out_flatten = torch.flatten(out_layer3, 1) ## Before going through fc layers, should flatten the output.
+        out_layer4 = self.layer4(out_flatten)
+        out = self.fc2(out_layer4)
 
-        return out_fc2
+        return out
 
 # Download MNIST dataset
 
@@ -120,46 +133,31 @@ device = checkGPU()
 learn_rate = 0.001
 batch_size = 100
 total_epochs = 15
-cnn = CNN().to(device)
 
 train_data = datasets.MNIST(root=path, train=True, transform=transforms.ToTensor(),download=True)
 test_data = datasets.MNIST(root=path, train=False, transform=transforms.ToTensor(),download=True)
 
-train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, drop_last=True)
-test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False, drop_last=True)
+print("Total numbers of training data : {}\n".format(len(train_data)))
+
+data_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, drop_last=True)
+
+print("Batch size is {}, then numbers of batches : {}\n".format(batch_size, int(len(train_data) / batch_size)))
+
+# Modeling NN
+
+cnn = CNN().to(device)
 
 # Define a Loss function and Optimizer
 
-criterion = nn.CrossEntropyLoss().to(device)
-optimizer = torch.optim.Adam(params=cnn.parameters(), lr=learn_rate)
+criterion = nn.CrossEntropyLoss().to(device) ## CrossEntropyLoss() cost function includes Softmax activation function.
+optimizer = torch.optim.Adam(params=cnn.parameters(), lr=learn_rate) ## Adam() optimizer
 
 # Train the network
 
 for epochs in range(total_epochs):
+    trainMNIST(data_loader, optimizer, criterion, epochs, device)
 
-    loss_avg = 0.0
-
-    for index, data in enumerate(train_loader):
-        
-        inputs, labels = data[0].to(device), data[1].to(device)
-
-        optimizer.zero_grad() ## Initializing the gradient
-
-        hypothesis = cnn(inputs) ## Forward
-        loss = criterion(hypothesis, labels)
-        loss.backward() ## Backward
-
-        optimizer.step() ## Optimization
-
-        # Displaying the training progress
-        loss_avg += loss.item() / len(train_loader)
-
-        if (index % 100) == 99:
-            print("\n[Epoch : {}  Index : {}]  Average Loss : {:.6f}\n".format(epochs+1,index+1, loss_avg))
-            loss_avg = 0.0
 
 # Test
 
-
-
-### In Progress ###
+testMNIST(test_data, device)
